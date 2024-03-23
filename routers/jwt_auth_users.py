@@ -1,13 +1,13 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import jwt
+from jose import jwt, JWTError
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 ALGORITHM = "HS256"
 ACCESS_TOKEN_DURATION = 1
-SECRET = "SAKhskakhJHKJhskHKhakhskhaJKH"
-app = FastAPI()
+SECRET = "00290a96067dcfcbd1678529ae5609efdb45c5d04ec8dbd1210051f21006179b"
+route = APIRouter()
 # JWT => JSON Web Token 
 
 oauth2 = OAuth2PasswordBearer(tokenUrl="login")
@@ -48,7 +48,7 @@ def searchUser(username: str):
     if username in users_db:
         return User(**users_db[username])
     
-@app.post('/login')
+@route.post('/login')
 async def login(form: OAuth2PasswordRequestForm = Depends()):
     user_db = users_db.get(form.username)
     
@@ -72,4 +72,33 @@ async def login(form: OAuth2PasswordRequestForm = Depends()):
     # Para añadirle seguridad, le podemos añadir una semilla generada que solo conzca el backend para la encriptacion y deencriptacion. 
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_DURATION)
     access_token = {"sub":user.username,"exp":expire}
-    return {"access_token": jwt.encode(access_token, algorithm=ALGORITHM), "token_type":"bearer"}
+    return {"access_token": jwt.encode(access_token, SECRET, algorithm=ALGORITHM), "token_type":"bearer"}
+
+def searchUser(username: str):
+    if username in users_db:
+        return User(**users_db[username])
+
+async def auth_user(token: str = Depends(oauth2)):
+    exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Credenciales de autenticacion invalidas", 
+            headers={"WWW-Authenticated": "bearer"})
+    try:
+        userName = jwt.decode(token, SECRET, algorithms=[ALGORITHM]).get("sub")
+        if userName is None: 
+            raise exception
+    except JWTError:
+         raise exception
+    return searchUser(userName)
+       
+
+async def currentUser(user: User = Depends(auth_user)):
+    if user.disabled: 
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Usuario inactivo")
+    return user
+
+@route.get("/users/me")
+async def me(user: User = Depends(currentUser)):
+    return user
